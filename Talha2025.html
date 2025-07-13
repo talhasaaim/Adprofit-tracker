@@ -1,0 +1,222 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>AdProfit Tracker - Talha Asghar</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(to right, #f0f9ff, #e0f7fa);
+      padding: 20px;
+    }
+    h1 { text-align: center; color: #333; }
+    .hidden { display: none; }
+    input, button, select, textarea {
+      margin: 5px; padding: 10px; font-size: 16px;
+    }
+    #result { margin-top: 20px; font-weight: bold; }
+    .profit { color: green; }
+    .loss { color: red; }
+    .history-entry {
+      margin-bottom: 10px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      background: #fff;
+    }
+  </style>
+</head>
+<body>
+  <div id="lockScreen">
+    <h2>🔐 Enter Access Code</h2>
+    <input type="password" id="accessCodeInput" placeholder="Enter code e.g. talha2025" />
+    <button onclick="checkAccess()">Unlock</button>
+  </div>
+
+  <div id="mainApp" class="hidden">
+    <h1>AdProfit Tracker - Talha Asghar</h1>
+
+    <label>Account Name:</label>
+    <input type="text" id="accountName" list="accountSuggestions" />
+    <datalist id="accountSuggestions"></datalist><br/>
+
+    <label>Campaign Cost (PKR):</label>
+    <input type="number" id="costPKR" placeholder="Main Cost" />
+    <input type="number" id="costPKR2" placeholder="Optional Second Cost" /><br/>
+
+    <label>AdMob Revenue (USD):</label>
+    <input type="number" id="revenueUSD" /><br/>
+
+    <label>Dollar Rate:</label>
+    <input type="number" id="usdRate" />
+    <button onclick="fetchRate()">Auto</button><br/>
+
+    <label>Notes:</label>
+    <textarea id="note" placeholder="Optional notes..."></textarea><br/>
+
+    <label>Admin Review:</label>
+    <select id="adminReview">
+      <option value="✅">✅ Good</option>
+      <option value="❌">❌ Rejected</option>
+      <option value="👍">👍 Approved</option>
+      <option value="😐">😐 Neutral</option>
+      <option value="😡">😡 Issue</option>
+      <option value="💬">💬 Needs Feedback</option>
+    </select><br/>
+
+    <button onclick="calculate()">Calculate</button>
+    <button onclick="clearResult()">Clear</button>
+    <button onclick="copyResult()">Copy</button>
+    <button onclick="showHistory()">📜 History</button>
+
+    <div id="result"></div>
+  </div>
+
+  <div id="historyPage" class="hidden">
+    <h2>📜 History</h2>
+    <input type="text" id="filterInput" placeholder="Filter by store or date..." onkeyup="filterHistory()" />
+    <button onclick="exportPDF()">Export to PDF</button>
+    <div id="historyList"></div>
+    <button onclick="closeHistory()">⬅ Back</button>
+  </div>
+
+  <script>
+    const correctCode = "talha2025";
+    const lockKey = "adprofit_access";
+
+    window.onload = () => {
+      if (localStorage.getItem(lockKey)) {
+        document.getElementById("lockScreen").classList.add("hidden");
+        document.getElementById("mainApp").classList.remove("hidden");
+        populateSuggestions();
+      }
+    }
+
+    function checkAccess() {
+      const input = document.getElementById("accessCodeInput").value;
+      if (input === correctCode) {
+        localStorage.setItem(lockKey, "true");
+        document.getElementById("lockScreen").classList.add("hidden");
+        document.getElementById("mainApp").classList.remove("hidden");
+        populateSuggestions();
+      } else {
+        alert("❌ Wrong access code");
+      }
+    }
+
+    async function fetchRate() {
+      try {
+        const res = await fetch('https://api.exchangerate.host/latest?base=USD&symbols=PKR');
+        const data = await res.json();
+        document.getElementById('usdRate').value = data.rates.PKR.toFixed(2);
+        alert("✅ Rate fetched: " + data.rates.PKR.toFixed(2));
+      } catch {
+        alert("⚠ Error fetching rate.");
+      }
+    }
+
+    function calculate() {
+      const name = document.getElementById('accountName').value;
+      const costPKR1 = parseFloat(document.getElementById('costPKR').value) || 0;
+      const costPKR2 = parseFloat(document.getElementById('costPKR2').value) || 0;
+      const costPKR = costPKR1 + costPKR2;
+      const revenue = parseFloat(document.getElementById('revenueUSD').value);
+      const rate = parseFloat(document.getElementById('usdRate').value);
+      const note = document.getElementById('note').value;
+      const review = document.getElementById('adminReview').value;
+
+      if (!name || isNaN(costPKR) || isNaN(revenue) || isNaN(rate)) {
+        alert("Please fill all fields correctly.");
+        return;
+      }
+
+      const baseCostUSD = costPKR / rate;
+      const taxUSD = baseCostUSD * 0.08;
+      const totalCostUSD = baseCostUSD + taxUSD;
+      const profitLoss = revenue - totalCostUSD;
+
+      const res = document.getElementById("result");
+      res.className = profitLoss >= 0 ? "profit" : "loss";
+      res.innerHTML = `
+        Account: ${name}<br>
+        Campaign Cost: ${costPKR.toFixed(2)} PKR (Main: ${costPKR1}, Second: ${costPKR2})<br>
+        USD Rate: ${rate.toFixed(2)}<br>
+        Cost in USD: ${baseCostUSD.toFixed(2)}<br>
+        Tax (8%): ${taxUSD.toFixed(2)} USD<br>
+        Total Cost (USD): ${totalCostUSD.toFixed(2)}<br>
+        AdMob Revenue: ${revenue.toFixed(2)} USD<br>
+        Profit/Loss: ${profitLoss.toFixed(2)} USD<br>
+        Note: ${note}<br>
+        Review: ${review}
+      `;
+
+      let history = JSON.parse(localStorage.getItem("history") || "[]");
+      history.push({ date: new Date().toLocaleString(), name, costPKR, baseCostUSD, taxUSD, totalCostUSD, revenue, profitLoss, note, review });
+      localStorage.setItem("history", JSON.stringify(history));
+      populateSuggestions();
+      new Audio('https://www.soundjay.com/button/sounds/button-4.mp3').play();
+    }
+
+    function clearResult() {
+      document.getElementById("result").innerHTML = "";
+      new Audio('https://www.soundjay.com/button/sounds/button-3.mp3').play();
+    }
+
+    function copyResult() {
+      navigator.clipboard.writeText(document.getElementById("result").innerText).then(() => {
+        alert("Copied!");
+        new Audio('https://www.soundjay.com/button/sounds/button-10.mp3').play();
+      });
+    }
+
+    function populateSuggestions() {
+      const history = JSON.parse(localStorage.getItem("history") || "[]");
+      const list = [...new Set(history.map(h => h.name))];
+      document.getElementById("accountSuggestions").innerHTML =
+        list.map(l => `<option value="${l}"></option>`).join("");
+    }
+
+    function showHistory() {
+      document.getElementById("mainApp").classList.add("hidden");
+      document.getElementById("historyPage").classList.remove("hidden");
+      const history = JSON.parse(localStorage.getItem("history") || "[]");
+      const container = document.getElementById("historyList");
+      container.innerHTML = "";
+      history.forEach(entry => {
+        container.innerHTML += `
+          <div class="history-entry">
+            <strong>${entry.date}</strong><br>
+            Account: ${entry.name}<br>
+            Total Cost (PKR): ${entry.costPKR.toFixed(2)}<br>
+            Cost in USD: ${entry.baseCostUSD.toFixed(2)}<br>
+            Tax (8%): ${entry.taxUSD.toFixed(2)} USD<br>
+            Total Cost (USD): ${entry.totalCostUSD.toFixed(2)}<br>
+            AdMob Revenue: ${entry.revenue.toFixed(2)} USD<br>
+            Profit/Loss: ${entry.profitLoss.toFixed(2)} USD<br>
+            Note: ${entry.note}<br>
+            Review: ${entry.review}
+          </div>
+        `;
+      });
+    }
+
+    function closeHistory() {
+      document.getElementById("historyPage").classList.add("hidden");
+      document.getElementById("mainApp").classList.remove("hidden");
+    }
+
+    function filterHistory() {
+      const filter = document.getElementById("filterInput").value.toLowerCase();
+      document.querySelectorAll(".history-entry").forEach(entry => {
+        entry.style.display = entry.innerText.toLowerCase().includes(filter) ? "block" : "none";
+      });
+    }
+
+    function exportPDF() {
+      alert("📄 PDF Export coming soon!");
+    }
+  </script>
+</body>
+</html>
